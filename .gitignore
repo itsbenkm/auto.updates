@@ -1,0 +1,4 @@
+# The generated update history stays local to the project directory to keep
+# everything self-contained, so it should never be committed.
+update_history.log
+*.log
