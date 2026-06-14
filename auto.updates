@@ -1,0 +1,475 @@
+#!/bin/bash
+
+# Color definitions
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+REPO_DIR="<REPO_DIR_PLACEHOLDER>"
+LOG_FILE="$REPO_DIR/update_history.log"
+
+# Function to log updates grouped by day
+log_update() {
+    local type=$1
+    local pkg=$2
+    local date_str=$(date +'%Y-%m-%d')
+    local time_str=$(date +'%H:%M:%S')
+    
+    # Check if we need to add the date header (if it's a new day or new file)
+    if [ ! -f "$LOG_FILE" ] || ! tail -n 10 "$LOG_FILE" | grep -q "^\[$date_str\]"; then
+        echo "" >> "$LOG_FILE"
+        echo "[$date_str]" >> "$LOG_FILE"
+    fi
+    echo "  $time_str - $type: $pkg" >> "$LOG_FILE"
+}
+
+echo -e "${CYAN}🔄 Checking for system, firmware, and CLI updates... This may take a moment. (Sudo password may be required)${NC}"
+
+# Refresh apt cache
+sudo apt-get update -qq
+
+# Gather APT updates
+APT_RAW=$(apt list --upgradable 2>/dev/null | tail -n +2)
+APT_UPDATES=$(echo "$APT_RAW" | awk -F/ '{print $1}' | grep -v '^$')
+APT_COUNT=$(echo -n "$APT_UPDATES" | grep -c '^' || true)
+if [ -z "$APT_UPDATES" ]; then APT_COUNT=0; fi
+
+# Gather SNAP updates
+SNAP_RAW=""
+SNAP_UPDATES=""
+SNAP_COUNT=0
+if command -v snap &> /dev/null; then
+    sudo snap refresh --list > /tmp/snap_updates.txt 2>/dev/null
+    if ! grep -q "No updates available" /tmp/snap_updates.txt; then
+        SNAP_RAW=$(cat /tmp/snap_updates.txt)
+        SNAP_UPDATES=$(tail -n +2 /tmp/snap_updates.txt | awk '{print $1}')
+        SNAP_COUNT=$(echo -n "$SNAP_UPDATES" | grep -c '^' || true)
+        if [ -z "$SNAP_UPDATES" ]; then SNAP_COUNT=0; fi
+    fi
+fi
+
+# Gather FLATPAK updates
+FLATPAK_RAW=""
+FLATPAK_UPDATES=""
+FLATPAK_COUNT=0
+if command -v flatpak &> /dev/null; then
+    flatpak remote-ls --updates > /tmp/flatpak_updates.txt 2>/dev/null
+    if [ -s /tmp/flatpak_updates.txt ]; then
+        FLATPAK_RAW=$(cat /tmp/flatpak_updates.txt)
+        FLATPAK_UPDATES=$(awk '{print $2}' /tmp/flatpak_updates.txt)
+        FLATPAK_COUNT=$(echo -n "$FLATPAK_UPDATES" | grep -c '^' || true)
+        if [ -z "$FLATPAK_UPDATES" ]; then FLATPAK_COUNT=0; fi
+    fi
+fi
+
+# Gather NPM updates
+NPM_RAW=""
+NPM_UPDATES=""
+NPM_COUNT=0
+if command -v npm &> /dev/null; then
+    npm -g outdated > /tmp/npm_updates.txt 2>/dev/null || true
+    if [ -s /tmp/npm_updates.txt ]; then
+        NPM_RAW=$(cat /tmp/npm_updates.txt)
+        NPM_UPDATES=$(tail -n +2 /tmp/npm_updates.txt | awk '{print $1}')
+        NPM_COUNT=$(echo -n "$NPM_UPDATES" | grep -c '^' || true)
+        if [ -z "$NPM_UPDATES" ]; then NPM_COUNT=0; fi
+    fi
+fi
+
+# Gather PIP updates
+PIP_RAW=""
+PIP_UPDATES=""
+PIP_COUNT=0
+if command -v pip3 &> /dev/null; then
+    pip3 list --outdated > /tmp/pip_updates.txt 2>/dev/null || true
+    if [ $(wc -l < /tmp/pip_updates.txt 2>/dev/null || echo 0) -gt 2 ]; then
+        PIP_RAW=$(cat /tmp/pip_updates.txt | tail -n +3)
+        PIP_UPDATES=$(echo "$PIP_RAW" | awk '{print $1}')
+        PIP_COUNT=$(echo -n "$PIP_UPDATES" | grep -c '^' || true)
+        if [ -z "$PIP_UPDATES" ]; then PIP_COUNT=0; fi
+    fi
+fi
+
+# Gather Firmware updates
+FW_RAW=""
+FW_UPDATES=""
+FW_COUNT=0
+if command -v fwupdmgr &> /dev/null; then
+    # Refresh metadata quietly
+    sudo fwupdmgr refresh --force > /dev/null 2>&1 || true
+    fwupdmgr get-updates > /tmp/fw_updates.txt 2>/dev/null || true
+    if ! grep -qi "No updatable devices\|No updates available\|no available firmware updates" /tmp/fw_updates.txt && [ -s /tmp/fw_updates.txt ]; then
+        FW_COUNT=1
+        FW_RAW=$(cat /tmp/fw_updates.txt)
+        FW_UPDATES="System-Firmware"
+    fi
+fi
+
+TOTAL=$((APT_COUNT + SNAP_COUNT + FLATPAK_COUNT + NPM_COUNT + PIP_COUNT + FW_COUNT))
+
+if [ "$TOTAL" -eq 0 ]; then
+    echo -e "${GREEN}✅ Your system, firmware, and CLI tools are already fully up to date! No updates found.${NC}"
+    exit 0
+fi
+
+echo -e "${YELLOW}🧠 Found $TOTAL updates. Analyzing via AGY...${NC}"
+
+CACHE_DIR="$HOME/.cache/auto.updates"
+mkdir -p "$CACHE_DIR"
+
+get_missing() {
+    local category=$1
+    local raw=$2
+    local updates=$3
+    
+    local missing=""
+    for pkg in $updates; do
+        local line=$(echo "$raw" | grep -i -- "\b$pkg\b" | head -n 1)
+        if [ -z "$line" ]; then line=$(echo "$raw" | grep -i -- "$pkg" | head -n 1); fi
+        if [ -z "$line" ] || [ -z "$(echo "$line" | tr -d '[:space:]')" ]; then continue; fi
+        local hash=$(echo "$line" | md5sum | awk '{print $1}')
+        
+        local safe_pkg=$(echo "$pkg" | tr '/' '_')
+        if [ ! -f "$CACHE_DIR/${safe_pkg}_${hash}.txt" ]; then
+            missing+="$category: $line\n"
+        fi
+    done
+    echo -e "$missing"
+}
+
+MISSING=""
+[ "$APT_COUNT" -gt 0 ] && MISSING+=$(get_missing "APT" "$APT_RAW" "$APT_UPDATES")
+[ "$SNAP_COUNT" -gt 0 ] && MISSING+=$(get_missing "SNAP" "$SNAP_RAW" "$SNAP_UPDATES")
+[ "$FLATPAK_COUNT" -gt 0 ] && MISSING+=$(get_missing "FLATPAK" "$FLATPAK_RAW" "$FLATPAK_UPDATES")
+[ "$NPM_COUNT" -gt 0 ] && MISSING+=$(get_missing "NPM" "$NPM_RAW" "$NPM_UPDATES")
+[ "$PIP_COUNT" -gt 0 ] && MISSING+=$(get_missing "PIP" "$PIP_RAW" "$PIP_UPDATES")
+[ "$FW_COUNT" -gt 0 ] && MISSING+=$(get_missing "FIRMWARE" "$FW_RAW" "$FW_UPDATES")
+
+if [ -n "$(echo -e "$MISSING" | tr -d '[:space:]')" ]; then
+    (
+        spinner="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        while true; do
+            for i in $(seq 0 9); do
+                echo -ne "\r${YELLOW}${spinner:$i:1} Researching updates via AGY...${NC}"
+                sleep 0.1
+            done
+        done
+    ) &
+    SPINNER_PID=$!
+    trap 'kill $SPINNER_PID 2>/dev/null; echo -ne "\r\033[K"; exit 1' INT TERM
+
+    prompt="I have these updates pending on my Ubuntu machine:\n${MISSING}\nFor each package listed, provide a deep, thorough explanation. Include the current version, the new version, and a summary of what the update actually entails (search the web for release notes or changelogs). Format your response EXACTLY like this, one per line:\npackage_name|Version X -> Version Y: [Detailed 2-3 sentence explanation.]\nDo NOT use line breaks inside the explanation. Do NOT output any other markdown, headers, or text outside of the package_name|explanation format."
+    
+    out_file="/tmp/agy_missing.tmp"
+    if command -v agy &> /dev/null; then
+        timeout 300 agy -p "$prompt" 2>/dev/null | grep "|" > "$out_file"
+    else
+        echo "" > "$out_file"
+    fi
+    
+    ALL_RAW="$APT_RAW\n$SNAP_RAW\n$FLATPAK_RAW\n$NPM_RAW\n$PIP_RAW\n$FW_RAW"
+    while IFS= read -r line; do
+        pkg_name=$(echo "$line" | cut -d'|' -f1)
+        expl=$(echo "$line" | cut -d'|' -f2-)
+        if [ -n "$pkg_name" ] && [ -n "$expl" ]; then
+            raw_line=$(echo -e "$ALL_RAW" | grep -i -- "\b$pkg_name\b" | head -n 1)
+            if [ -z "$raw_line" ]; then raw_line=$(echo -e "$ALL_RAW" | grep -i -- "$pkg_name" | head -n 1); fi
+            hash=$(echo "$raw_line" | md5sum | awk '{print $1}')
+            safe_pkg_name=$(echo "$pkg_name" | tr '/' '_')
+            echo "$expl" > "$CACHE_DIR/${safe_pkg_name}_${hash}.txt"
+        fi
+    done < "$out_file"
+    
+    kill $SPINNER_PID 2>/dev/null
+    trap - INT TERM
+    echo -ne "\r\033[K"
+fi
+
+print_pkg() {
+    local pkg=$1
+    local cmd=$2
+    local raw=$3
+    
+    local line=$(echo "$raw" | grep -i -- "\b$pkg\b" | head -n 1)
+    if [ -z "$line" ]; then line=$(echo "$raw" | grep -i -- "$pkg" | head -n 1); fi
+    local hash=$(echo "$line" | md5sum | awk '{print $1}')
+    
+    local expl="Routine update / No release notes found."
+    local safe_pkg=$(echo "$pkg" | tr '/' '_')
+    if [ -f "$CACHE_DIR/${safe_pkg}_${hash}.txt" ]; then
+        expl=$(cat "$CACHE_DIR/${safe_pkg}_${hash}.txt")
+    fi
+    
+    echo -e "   - ${GREEN}${pkg}${NC}: ${cmd}"
+    echo -e "     ${MAGENTA}↳ AGY:${NC} ${expl}" | fold -s -w 100 | sed '2,$s/^/            /'
+    echo ""
+}
+
+# We use an infinite loop so we can return to the menu if the user cancels UI selection
+    echo -e "=========================================="
+    echo -e "📦 ${CYAN}Found $TOTAL total pending updates:${NC}"
+    echo -e "=========================================="
+    echo ""
+    
+    if [ "$APT_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 APT Updates ($APT_COUNT):${NC}"
+        for pkg in $APT_UPDATES; do
+            print_pkg "$pkg" "sudo apt-get install --only-upgrade -y $pkg" "$APT_RAW"
+        done
+    fi
+    
+    if [ "$SNAP_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 SNAP Updates ($SNAP_COUNT):${NC}"
+        for pkg in $SNAP_UPDATES; do
+            print_pkg "$pkg" "sudo snap refresh $pkg" "$SNAP_RAW"
+        done
+    fi
+    
+    if [ "$FLATPAK_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 FLATPAK Updates ($FLATPAK_COUNT):${NC}"
+        for pkg in $FLATPAK_UPDATES; do
+            print_pkg "$pkg" "flatpak update -y $pkg" "$FLATPAK_RAW"
+        done
+    fi
+    
+    if [ "$NPM_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 NPM Global Updates ($NPM_COUNT):${NC}"
+        for pkg in $NPM_UPDATES; do
+            print_pkg "$pkg" "sudo npm -g install $pkg@latest" "$NPM_RAW"
+        done
+    fi
+    
+    if [ "$PIP_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 PIP Package Updates ($PIP_COUNT):${NC}"
+        for pkg in $PIP_UPDATES; do
+            print_pkg "$pkg" "pip3 install --upgrade $pkg" "$PIP_RAW"
+        done
+    fi
+
+    if [ "$FW_COUNT" -gt 0 ]; then
+        echo -e "${BLUE}🔹 Hardware Firmware Updates ($FW_COUNT):${NC}"
+        for pkg in $FW_UPDATES; do
+            print_pkg "$pkg" "sudo fwupdmgr update" "$FW_RAW"
+        done
+    fi
+    
+    echo -e "Select an action:"
+    echo -e "${GREEN}1) 🚀 Quick Install All${NC}"
+    echo -e "${YELLOW}2) 📋 Select manually via UI (whiptail)${NC}"
+    echo -e "${BLUE}3) 📜 View Update History Log${NC}"
+    echo -e "${RED}q) Quit${NC}"
+
+while true; do
+    read -p "Choice: " choice
+
+    case $choice in
+        1)
+            echo -e "${CYAN}Installing all updates...${NC}"
+            if [ "$APT_COUNT" -gt 0 ]; then 
+                sudo apt-get upgrade -y
+                for pkg in $APT_UPDATES; do log_update "APT" "$pkg"; done
+            fi
+            if [ "$SNAP_COUNT" -gt 0 ]; then 
+                sudo snap refresh
+                for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg"; done
+            fi
+            if [ "$FLATPAK_COUNT" -gt 0 ]; then 
+                flatpak update -y
+                for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg"; done
+            fi
+            if [ "$NPM_COUNT" -gt 0 ]; then
+                for pkg in $NPM_UPDATES; do 
+                    sudo npm -g install "$pkg"@latest
+                    log_update "NPM" "$pkg"
+                done
+            fi
+            if [ "$PIP_COUNT" -gt 0 ]; then
+                for pkg in $PIP_UPDATES; do 
+                    pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"
+                    log_update "PIP" "$pkg"
+                done
+            fi
+            if [ "$FW_COUNT" -gt 0 ]; then
+                sudo fwupdmgr update -y
+                log_update "FIRMWARE" "System-Firmware"
+            fi
+            echo -e "${GREEN}✅ All updates installed! Log updated at $LOG_FILE${NC}"
+            exit 0
+            ;;
+        2)
+            CHECKLIST=()
+            
+            # 1. Master Bulk List
+            if [ "$APT_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_APT" "[Bulk] Update all $APT_COUNT APT packages" OFF); fi
+            if [ "$SNAP_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_SNAP" "[Bulk] Update all $SNAP_COUNT SNAP packages" OFF); fi
+            if [ "$FLATPAK_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_FLATPAK" "[Bulk] Update all $FLATPAK_COUNT FLATPAK packages" OFF); fi
+            if [ "$NPM_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_NPM" "[Bulk] Update all $NPM_COUNT NPM packages" OFF); fi
+            if [ "$PIP_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_PIP" "[Bulk] Update all $PIP_COUNT PIP packages" OFF); fi
+            if [ "$FW_COUNT" -gt 0 ]; then CHECKLIST+=("ALL_FIRMWARE" "[Bulk] Update all firmware" OFF); fi
+            
+            if [ ${#CHECKLIST[@]} -eq 0 ]; then
+                echo "No updates available to select."
+                exit 0
+            fi
+            
+            # Separator
+            CHECKLIST+=("------------------" "--------------------------------------" OFF)
+            
+            # 2. Individual Categories
+            if [ "$APT_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_APT" "[Bulk] Update all $APT_COUNT APT packages" OFF)
+                for app in $APT_UPDATES; do CHECKLIST+=("$app" "apt" OFF); done
+                CHECKLIST+=("-------------------" "--------------------------------------" OFF)
+            fi
+            if [ "$SNAP_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_SNAP" "[Bulk] Update all $SNAP_COUNT SNAP packages" OFF)
+                for app in $SNAP_UPDATES; do CHECKLIST+=("$app" "snap" OFF); done
+                CHECKLIST+=("--------------------" "--------------------------------------" OFF)
+            fi
+            if [ "$FLATPAK_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_FLATPAK" "[Bulk] Update all $FLATPAK_COUNT FLATPAK packages" OFF)
+                for app in $FLATPAK_UPDATES; do CHECKLIST+=("$app" "flatpak" OFF); done
+                CHECKLIST+=("---------------------" "--------------------------------------" OFF)
+            fi
+            if [ "$NPM_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_NPM" "[Bulk] Update all $NPM_COUNT NPM packages" OFF)
+                for app in $NPM_UPDATES; do CHECKLIST+=("$app" "npm" OFF); done
+                CHECKLIST+=("----------------------" "--------------------------------------" OFF)
+            fi
+            if [ "$PIP_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_PIP" "[Bulk] Update all $PIP_COUNT PIP packages" OFF)
+                for app in $PIP_UPDATES; do CHECKLIST+=("$app" "pip" OFF); done
+                CHECKLIST+=("-----------------------" "--------------------------------------" OFF)
+            fi
+            if [ "$FW_COUNT" -gt 0 ]; then
+                CHECKLIST+=("GROUP_FIRMWARE" "[Bulk] Update all firmware" OFF)
+                for app in $FW_UPDATES; do CHECKLIST+=("$app" "firmware" OFF); done
+                CHECKLIST+=("------------------------" "--------------------------------------" OFF)
+            fi
+
+            # Run whiptail
+            SELECTED=$(whiptail --title "Select Updates" --checklist "Choose packages to update (Space to toggle, Enter to confirm):" 25 78 15 -- "${CHECKLIST[@]}" 3>&1 1>&2 2>&3)
+            
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}❌ Cancelled manual selection.${NC}"
+                echo ""
+                continue
+            fi
+            
+            SELECTED=$(echo $SELECTED | tr -d '"')
+            if [ -z "$SELECTED" ]; then
+                echo -e "${RED}❌ No updates selected.${NC}"
+                echo ""
+                continue
+            fi
+
+            # Check APT
+            if echo "$SELECTED" | grep -qw "ALL_APT\|GROUP_APT"; then
+                echo -e "${CYAN}Bulk updating all APT packages...${NC}"
+                sudo apt-get upgrade -y
+                for pkg in $APT_UPDATES; do log_update "APT" "$pkg"; done
+            else
+                for pkg in $SELECTED; do
+                    if echo "$APT_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                        echo -e "${CYAN}Updating $pkg...${NC}"
+                        sudo apt-get install --only-upgrade -y "$pkg"
+                        log_update "APT" "$pkg"
+                    fi
+                done
+            fi
+
+            # Check SNAP
+            if echo "$SELECTED" | grep -qw "ALL_SNAP\|GROUP_SNAP"; then
+                echo -e "${CYAN}Bulk updating all SNAP packages...${NC}"
+                sudo snap refresh
+                for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg"; done
+            else
+                for pkg in $SELECTED; do
+                    if echo "$SNAP_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                        echo -e "${CYAN}Updating $pkg...${NC}"
+                        sudo snap refresh "$pkg"
+                        log_update "SNAP" "$pkg"
+                    fi
+                done
+            fi
+
+            # Check FLATPAK
+            if echo "$SELECTED" | grep -qw "ALL_FLATPAK\|GROUP_FLATPAK"; then
+                echo -e "${CYAN}Bulk updating all FLATPAK packages...${NC}"
+                flatpak update -y
+                for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg"; done
+            else
+                for pkg in $SELECTED; do
+                    if echo "$FLATPAK_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                        echo -e "${CYAN}Updating $pkg...${NC}"
+                        flatpak update -y "$pkg"
+                        log_update "FLATPAK" "$pkg"
+                    fi
+                done
+            fi
+
+            # Check NPM
+            if echo "$SELECTED" | grep -qw "ALL_NPM\|GROUP_NPM"; then
+                echo -e "${CYAN}Bulk updating all NPM packages...${NC}"
+                for pkg in $NPM_UPDATES; do 
+                    sudo npm -g install "$pkg"@latest
+                    log_update "NPM" "$pkg"
+                done
+            else
+                for pkg in $SELECTED; do
+                    if echo "$NPM_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                        echo -e "${CYAN}Updating $pkg...${NC}"
+                        sudo npm -g install "$pkg"@latest
+                        log_update "NPM" "$pkg"
+                    fi
+                done
+            fi
+
+            # Check PIP
+            if echo "$SELECTED" | grep -qw "ALL_PIP\|GROUP_PIP"; then
+                echo -e "${CYAN}Bulk updating all PIP packages...${NC}"
+                for pkg in $PIP_UPDATES; do 
+                    pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"
+                    log_update "PIP" "$pkg"
+                done
+            else
+                for pkg in $SELECTED; do
+                    if echo "$PIP_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                        echo -e "${CYAN}Updating $pkg...${NC}"
+                        pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"
+                        log_update "PIP" "$pkg"
+                    fi
+                done
+            fi
+
+            # Check FIRMWARE
+            if echo "$SELECTED" | grep -qw "ALL_FIRMWARE\|GROUP_FIRMWARE\|System-Firmware"; then
+                echo -e "${CYAN}Updating firmware...${NC}"
+                sudo fwupdmgr update -y
+                log_update "FIRMWARE" "System-Firmware"
+            fi
+            
+            echo -e "${GREEN}✅ Selected updates completed! Log updated at $LOG_FILE${NC}"
+            exit 0
+            ;;
+        3)
+            if [ -f "$LOG_FILE" ]; then
+                # Show in a pager like less
+                less "$LOG_FILE"
+            else
+                echo -e "${RED}No update history found yet. Install some updates first!${NC}"
+            fi
+            ;;
+        q|Q)
+            echo -e "${CYAN}Exiting...${NC}"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}⚠️ \'$choice\' is invalid. Please select 1, 2, 3, or q.${NC}"
+            ;;
+    esac
+done
