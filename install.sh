@@ -16,21 +16,8 @@ sed -i "s|<REPO_DIR_PLACEHOLDER>|$REPO_DIR|g" "$INSTALL_DIR/auto.updates"
 
 chmod +x "$INSTALL_DIR/auto.updates"
 
-# 2. Set up Autostart
-AUTOSTART_DIR="$USER_HOME/.config/autostart"
-mkdir -p "$AUTOSTART_DIR"
-AUTOSTART_FILE="$AUTOSTART_DIR/auto.updates.desktop"
+# Remove any existing autostart entry if present from previous versions
+AUTOSTART_FILE="$USER_HOME/.config/autostart/auto.updates.desktop"
+rm -f "$AUTOSTART_FILE"
 
-# We run it via gnome-terminal so the user can interact with the CLI menu
-cat <<EOF > "$AUTOSTART_FILE"
-[Desktop Entry]
-Type=Application
-Name=Auto Updates
-Comment=Checks for system updates on boot
-Exec=gnome-terminal -- $INSTALL_DIR/auto.updates
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-EOF
-
-echo "Installation complete! auto.updates will now run automatically on boot."
+echo "Installation complete! You can now run 'auto.updates' manually from your terminal."

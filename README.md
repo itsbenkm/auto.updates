@@ -11,21 +11,14 @@ Run the installer:
 ./install.sh
 ```
 
-This will copy the script to `~/.local/bin/` and create a GNOME Autostart entry. Whenever you log in, `auto.updates` will immediately open a terminal if there are updates available.
+This will copy the script to `~/.local/bin/`. You can then run `auto.updates` manually from your terminal at any time.
 
 ## Uninstallation
 
-**⚠️ IMPORTANT: Do not just delete the folder!** 
-Because this tool integrates with GNOME startup, deleting the folder will leave a "ghost" hook trying to run in the background.
-
-To cleanly remove the script and its Autostart entry:
+To cleanly remove the script:
 ```bash
 ./uninstall.sh
 ```
-
-## How it works alongside `app-reboot`
-
-If you use this alongside the `app-reboot` project, they are completely independent but naturally coordinate. When your PC boots, `auto.updates` will launch first. `app-reboot` monitors the system's CPU load, so it will patiently wait for `auto.updates` to finish its work before it begins restoring your applications.
 ## Changelog
 
 **Latest Updates:**
