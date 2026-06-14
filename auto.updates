@@ -12,6 +12,17 @@ NC='\033[0m' # No Color
 REPO_DIR="<REPO_DIR_PLACEHOLDER>"
 LOG_FILE="$REPO_DIR/update_history.log"
 
+# Guard: the project folder path was baked in at install time. If the folder
+# was moved or deleted, the update history can't be saved here. Updates still
+# work fine, so warn clearly and disable logging rather than erroring on every
+# write. Re-running install.sh from the new location restores logging.
+LOGGING_ENABLED=1
+if [ ! -d "$REPO_DIR" ]; then
+    echo -e "${YELLOW}⚠️  auto.updates: project folder '$REPO_DIR' not found (moved or deleted).${NC}" >&2
+    echo -e "${YELLOW}    Update history won't be saved. Re-run install.sh from its new location to fix this.${NC}" >&2
+    LOGGING_ENABLED=0
+fi
+
 # Decide whether global npm needs sudo. With a user-local Node manager
 # (fnm, nvm, asdf, volta) the global dir is user-writable and `sudo npm`
 # would wrongly target root's Node (or fail). Only elevate when the global
@@ -26,6 +37,7 @@ fi
 
 # Function to log updates grouped by day
 log_update() {
+    [ "${LOGGING_ENABLED:-1}" = "1" ] || return 0
     local type=$1
     local pkg=$2
     local raw=$3

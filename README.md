@@ -13,6 +13,12 @@ Run the installer:
 
 This will copy the script to `~/.local/bin/`. You can then run `auto.updates` manually from your terminal at any time.
 
+## Moving or Relocating the Folder
+
+The installer records **this folder's location** so the tool knows where to keep your update history. If you move or rename the folder later, just **re-run `./install.sh`** from the new location.
+
+If the folder goes missing, `auto.updates` still works — it simply warns that history won't be saved until you re-install from the new location.
+
 ## Uninstallation
 
 To cleanly remove the script:
