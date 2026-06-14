@@ -26,4 +26,8 @@ To cleanly remove the script and its Autostart entry:
 ## How it works alongside `app-reboot`
 
 If you use this alongside the `app-reboot` project, they are completely independent but naturally coordinate. When your PC boots, `auto.updates` will launch first. `app-reboot` monitors the system's CPU load, so it will patiently wait for `auto.updates` to finish its work before it begins restoring your applications.
-# auto.updates
+## Changelog
+
+**Latest Updates:**
+- **Smarter Update History:** Refactored the `update_history.log` file formatting to logically group updates by day without repeating the date header. The log now also pulls the AI-generated explanations from the cache, matching the output shown in the interactive UI.
+- **Strict Error Handling:** Modified the installation sequence to accurately capture the exit status of package managers. Failed installations (like unsupported Node.js engines during NPM updates) will print a warning and will be skipped in the update history log, ensuring the log always perfectly reflects your system state.
