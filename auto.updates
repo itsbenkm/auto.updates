@@ -12,6 +12,18 @@ NC='\033[0m' # No Color
 REPO_DIR="<REPO_DIR_PLACEHOLDER>"
 LOG_FILE="$REPO_DIR/update_history.log"
 
+# Decide whether global npm needs sudo. With a user-local Node manager
+# (fnm, nvm, asdf, volta) the global dir is user-writable and `sudo npm`
+# would wrongly target root's Node (or fail). Only elevate when the global
+# node_modules dir genuinely isn't writable by the current user.
+NPM_SUDO=""
+if command -v npm &> /dev/null; then
+    NPM_ROOT="$(npm root -g 2>/dev/null)"
+    if [ -z "$NPM_ROOT" ] || [ ! -w "$NPM_ROOT" ]; then
+        NPM_SUDO="sudo"
+    fi
+fi
+
 # Function to log updates grouped by day
 log_update() {
     local type=$1
@@ -33,8 +45,7 @@ log_update() {
     
     local expl="Routine update / No release notes found."
     if [ -n "$raw" ]; then
-        local line=$(echo "$raw" | grep -i -- "\b$pkg\b" | head -n 1)
-        if [ -z "$line" ]; then line=$(echo "$raw" | grep -i -- "$pkg" | head -n 1); fi
+        local line=$(echo "$raw" | grep -iF -- "$pkg" | head -n 1)
         if [ -n "$line" ]; then
             local hash=$(echo "$line" | md5sum | awk '{print $1}')
             local safe_pkg=$(echo "$pkg" | tr '/' '_')
@@ -46,6 +57,26 @@ log_update() {
     
     echo "  $time_str - $type: $pkg" >> "$LOG_FILE"
     echo "    ↳ AGY: $expl" | fold -s -w 100 | sed '2,$s/^/           /' >> "$LOG_FILE"
+}
+
+# Safely upgrade a single pip package. Never uses --break-system-packages:
+# on modern Ubuntu the system Python is externally managed (PEP 668) and
+# forcing an upgrade there can break apt-managed packages. If pip refuses
+# for that reason, we skip with a clear, actionable warning instead.
+pip_upgrade() {
+    local pkg="$1"
+    local err
+    err=$(mktemp)
+    if pip3 install --upgrade "$pkg" 2>"$err"; then
+        log_update "PIP" "$pkg" "$PIP_RAW"
+    elif grep -qi "externally-managed-environment\|externally managed" "$err"; then
+        echo -e "${YELLOW}⚠️  Skipped PIP '$pkg': this Python is externally managed (apt-managed).${NC}"
+        echo -e "${YELLOW}    Upgrade it via apt, or inside a virtualenv / with 'pip install --user', to avoid breaking system packages.${NC}"
+    else
+        echo -e "${RED}⚠️ Failed to update PIP package: $pkg${NC}"
+        cat "$err" >&2
+    fi
+    rm -f "$err"
 }
 
 echo -e "${CYAN}🔄 Checking for system, firmware, and CLI updates... This may take a moment. (Sudo password may be required)${NC}"
@@ -149,8 +180,7 @@ get_missing() {
     
     local missing=""
     for pkg in $updates; do
-        local line=$(echo "$raw" | grep -i -- "\b$pkg\b" | head -n 1)
-        if [ -z "$line" ]; then line=$(echo "$raw" | grep -i -- "$pkg" | head -n 1); fi
+        local line=$(echo "$raw" | grep -iF -- "$pkg" | head -n 1)
         if [ -z "$line" ] || [ -z "$(echo "$line" | tr -d '[:space:]')" ]; then continue; fi
         local hash=$(echo "$line" | md5sum | awk '{print $1}')
         
@@ -197,8 +227,7 @@ if [ -n "$(echo -e "$MISSING" | tr -d '[:space:]')" ]; then
         pkg_name=$(echo "$line" | cut -d'|' -f1)
         expl=$(echo "$line" | cut -d'|' -f2-)
         if [ -n "$pkg_name" ] && [ -n "$expl" ]; then
-            raw_line=$(echo -e "$ALL_RAW" | grep -i -- "\b$pkg_name\b" | head -n 1)
-            if [ -z "$raw_line" ]; then raw_line=$(echo -e "$ALL_RAW" | grep -i -- "$pkg_name" | head -n 1); fi
+            raw_line=$(echo -e "$ALL_RAW" | grep -iF -- "$pkg_name" | head -n 1)
             hash=$(echo "$raw_line" | md5sum | awk '{print $1}')
             safe_pkg_name=$(echo "$pkg_name" | tr '/' '_')
             echo "$expl" > "$CACHE_DIR/${safe_pkg_name}_${hash}.txt"
@@ -215,8 +244,7 @@ print_pkg() {
     local cmd=$2
     local raw=$3
     
-    local line=$(echo "$raw" | grep -i -- "\b$pkg\b" | head -n 1)
-    if [ -z "$line" ]; then line=$(echo "$raw" | grep -i -- "$pkg" | head -n 1); fi
+    local line=$(echo "$raw" | grep -iF -- "$pkg" | head -n 1)
     local hash=$(echo "$line" | md5sum | awk '{print $1}')
     
     local expl="Routine update / No release notes found."
@@ -260,7 +288,7 @@ print_pkg() {
     if [ "$NPM_COUNT" -gt 0 ]; then
         echo -e "${BLUE}🔹 NPM Global Updates ($NPM_COUNT):${NC}"
         for pkg in $NPM_UPDATES; do
-            print_pkg "$pkg" "sudo npm -g install $pkg@latest" "$NPM_RAW"
+            print_pkg "$pkg" "${NPM_SUDO:+$NPM_SUDO }npm -g install $pkg@latest" "$NPM_RAW"
         done
     fi
     
@@ -278,13 +306,16 @@ print_pkg() {
         done
     fi
     
+show_actions() {
     echo -e "Select an action:"
     echo -e "${GREEN}1) 🚀 Quick Install All${NC}"
     echo -e "${YELLOW}2) 📋 Select manually via UI (whiptail)${NC}"
     echo -e "${BLUE}3) 📜 View Update History Log${NC}"
     echo -e "${RED}q) Quit${NC}"
+}
 
 while true; do
+    show_actions
     read -p "Choice: " choice
 
     case $choice in
@@ -313,7 +344,7 @@ while true; do
             fi
             if [ "$NPM_COUNT" -gt 0 ]; then
                 for pkg in $NPM_UPDATES; do 
-                    if sudo npm -g install "$pkg"@latest; then
+                    if $NPM_SUDO npm -g install "$pkg"@latest; then
                         log_update "NPM" "$pkg" "$NPM_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update NPM package: $pkg${NC}"
@@ -321,12 +352,8 @@ while true; do
                 done
             fi
             if [ "$PIP_COUNT" -gt 0 ]; then
-                for pkg in $PIP_UPDATES; do 
-                    if pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"; then
-                        log_update "PIP" "$pkg" "$PIP_RAW"
-                    else
-                        echo -e "${RED}⚠️ Failed to update PIP package: $pkg${NC}"
-                    fi
+                for pkg in $PIP_UPDATES; do
+                    pip_upgrade "$pkg"
                 done
             fi
             if [ "$FW_COUNT" -gt 0 ]; then
@@ -416,7 +443,7 @@ while true; do
             fi
             else
                 for pkg in $SELECTED; do
-                    if echo "$APT_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                    if echo "$APT_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
                         echo -e "${CYAN}Updating $pkg...${NC}"
                         if sudo apt-get install --only-upgrade -y "$pkg"; then
                         log_update "APT" "$pkg" "$APT_RAW"
@@ -437,7 +464,7 @@ while true; do
             fi
             else
                 for pkg in $SELECTED; do
-                    if echo "$SNAP_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                    if echo "$SNAP_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
                         echo -e "${CYAN}Updating $pkg...${NC}"
                         if sudo snap refresh "$pkg"; then
                         log_update "SNAP" "$pkg" "$SNAP_RAW"
@@ -458,7 +485,7 @@ while true; do
             fi
             else
                 for pkg in $SELECTED; do
-                    if echo "$FLATPAK_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                    if echo "$FLATPAK_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
                         echo -e "${CYAN}Updating $pkg...${NC}"
                         if flatpak update -y "$pkg"; then
                         log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"
@@ -473,7 +500,7 @@ while true; do
             if echo "$SELECTED" | grep -qw "ALL_NPM\|GROUP_NPM"; then
                 echo -e "${CYAN}Bulk updating all NPM packages...${NC}"
                 for pkg in $NPM_UPDATES; do 
-                    if sudo npm -g install "$pkg"@latest; then
+                    if $NPM_SUDO npm -g install "$pkg"@latest; then
                         log_update "NPM" "$pkg" "$NPM_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update NPM package: $pkg${NC}"
@@ -481,9 +508,9 @@ while true; do
                 done
             else
                 for pkg in $SELECTED; do
-                    if echo "$NPM_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                    if echo "$NPM_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
                         echo -e "${CYAN}Updating $pkg...${NC}"
-                        if sudo npm -g install "$pkg"@latest; then
+                        if $NPM_SUDO npm -g install "$pkg"@latest; then
                         log_update "NPM" "$pkg" "$NPM_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update NPM package: $pkg${NC}"
@@ -495,22 +522,14 @@ while true; do
             # Check PIP
             if echo "$SELECTED" | grep -qw "ALL_PIP\|GROUP_PIP"; then
                 echo -e "${CYAN}Bulk updating all PIP packages...${NC}"
-                for pkg in $PIP_UPDATES; do 
-                    if pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"; then
-                        log_update "PIP" "$pkg" "$PIP_RAW"
-                    else
-                        echo -e "${RED}⚠️ Failed to update PIP package: $pkg${NC}"
-                    fi
+                for pkg in $PIP_UPDATES; do
+                    pip_upgrade "$pkg"
                 done
             else
                 for pkg in $SELECTED; do
-                    if echo "$PIP_UPDATES" | grep -qw -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
+                    if echo "$PIP_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
                         echo -e "${CYAN}Updating $pkg...${NC}"
-                        if pip3 install --upgrade "$pkg" --break-system-packages 2>/dev/null || pip3 install --upgrade "$pkg"; then
-                        log_update "PIP" "$pkg" "$PIP_RAW"
-                    else
-                        echo -e "${RED}⚠️ Failed to update PIP package: $pkg${NC}"
-                    fi
+                        pip_upgrade "$pkg"
                     fi
                 done
             fi
