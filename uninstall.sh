@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 USER_HOME=$HOME
 INSTALL_DIR="$USER_HOME/.local/bin"

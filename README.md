@@ -4,6 +4,13 @@ A comprehensive update utility for Ubuntu/Linux systems.
 
 It checks `apt`, `snap`, `flatpak`, `npm`, `pip`, and `fwupdmgr` for available updates and provides an interactive CLI interface to review and install them. If you have the `agy` AI tool installed on your system, it can even automatically fetch and summarize release notes for pending updates!
 
+## Requirements
+
+- **Ubuntu/Debian-based Linux** with `apt` and `sudo`.
+- **`whiptail`** — required only for the "Select manually via UI" menu (ships by default on Ubuntu).
+- **`less`** — used to page the update-history log.
+- Optional: `snap`, `flatpak`, `npm`, `pip3`, `fwupdmgr` (each is auto-detected and simply skipped if absent), and **`agy`** for AI-generated release-note summaries.
+
 ## Installation
 
 Run the installer:
@@ -29,4 +36,4 @@ To cleanly remove the script:
 
 **Latest Updates:**
 - **Smarter Update History:** Refactored the `update_history.log` file formatting to logically group updates by day without repeating the date header. The log now also pulls the AI-generated explanations from the cache, matching the output shown in the interactive UI.
-- **Strict Error Handling:** Modified the installation sequence to accurately capture the exit status of package managers. Failed installations (like unsupported Node.js engines during NPM updates) will print a warning and will be skipped in the update history log, ensuring the log always perfectly reflects your system state.
+- **Strict Error Handling:** The installation sequence captures the exit status of package managers. Failed **individual** installations (e.g. an unsupported Node.js engine during an NPM update) print a warning and are skipped in the update-history log. Note: bulk operations (`apt-get upgrade`, `snap refresh`, etc.) are logged per package when the bulk command succeeds, so a partial failure within a bulk run may still be logged optimistically.

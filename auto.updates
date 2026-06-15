@@ -112,10 +112,10 @@ SNAP_RAW=""
 SNAP_UPDATES=""
 SNAP_COUNT=0
 if command -v snap &> /dev/null; then
-    sudo snap refresh --list > $AU_TMP/snap_updates.txt 2>/dev/null
-    if ! grep -q "No updates available" $AU_TMP/snap_updates.txt; then
-        SNAP_RAW=$(cat $AU_TMP/snap_updates.txt)
-        SNAP_UPDATES=$(tail -n +2 $AU_TMP/snap_updates.txt | awk '{print $1}')
+    sudo snap refresh --list > "$AU_TMP/snap_updates.txt" 2>/dev/null
+    if ! grep -q "No updates available" "$AU_TMP/snap_updates.txt"; then
+        SNAP_RAW=$(cat "$AU_TMP/snap_updates.txt")
+        SNAP_UPDATES=$(tail -n +2 "$AU_TMP/snap_updates.txt" | awk '{print $1}')
         SNAP_COUNT=$(echo -n "$SNAP_UPDATES" | grep -c '^' || true)
         if [ -z "$SNAP_UPDATES" ]; then SNAP_COUNT=0; fi
     fi
@@ -126,10 +126,10 @@ FLATPAK_RAW=""
 FLATPAK_UPDATES=""
 FLATPAK_COUNT=0
 if command -v flatpak &> /dev/null; then
-    flatpak remote-ls --updates > $AU_TMP/flatpak_updates.txt 2>/dev/null
-    if [ -s $AU_TMP/flatpak_updates.txt ]; then
-        FLATPAK_RAW=$(cat $AU_TMP/flatpak_updates.txt)
-        FLATPAK_UPDATES=$(awk '{print $2}' $AU_TMP/flatpak_updates.txt)
+    flatpak remote-ls --updates > "$AU_TMP/flatpak_updates.txt" 2>/dev/null
+    if [ -s "$AU_TMP/flatpak_updates.txt" ]; then
+        FLATPAK_RAW=$(cat "$AU_TMP/flatpak_updates.txt")
+        FLATPAK_UPDATES=$(awk '{print $2}' "$AU_TMP/flatpak_updates.txt")
         FLATPAK_COUNT=$(echo -n "$FLATPAK_UPDATES" | grep -c '^' || true)
         if [ -z "$FLATPAK_UPDATES" ]; then FLATPAK_COUNT=0; fi
     fi
@@ -140,10 +140,10 @@ NPM_RAW=""
 NPM_UPDATES=""
 NPM_COUNT=0
 if command -v npm &> /dev/null; then
-    npm -g outdated > $AU_TMP/npm_updates.txt 2>/dev/null || true
-    if [ -s $AU_TMP/npm_updates.txt ]; then
-        NPM_RAW=$(cat $AU_TMP/npm_updates.txt)
-        NPM_UPDATES=$(tail -n +2 $AU_TMP/npm_updates.txt | awk '{print $1}')
+    npm -g outdated > "$AU_TMP/npm_updates.txt" 2>/dev/null || true
+    if [ -s "$AU_TMP/npm_updates.txt" ]; then
+        NPM_RAW=$(cat "$AU_TMP/npm_updates.txt")
+        NPM_UPDATES=$(tail -n +2 "$AU_TMP/npm_updates.txt" | awk '{print $1}')
         NPM_COUNT=$(echo -n "$NPM_UPDATES" | grep -c '^' || true)
         if [ -z "$NPM_UPDATES" ]; then NPM_COUNT=0; fi
     fi
@@ -154,9 +154,9 @@ PIP_RAW=""
 PIP_UPDATES=""
 PIP_COUNT=0
 if command -v pip3 &> /dev/null; then
-    pip3 list --outdated > $AU_TMP/pip_updates.txt 2>/dev/null || true
-    if [ $(wc -l < $AU_TMP/pip_updates.txt 2>/dev/null || echo 0) -gt 2 ]; then
-        PIP_RAW=$(cat $AU_TMP/pip_updates.txt | tail -n +3)
+    pip3 list --outdated > "$AU_TMP/pip_updates.txt" 2>/dev/null || true
+    if [ $(wc -l < "$AU_TMP/pip_updates.txt" 2>/dev/null || echo 0) -gt 2 ]; then
+        PIP_RAW=$(cat "$AU_TMP/pip_updates.txt" | tail -n +3)
         PIP_UPDATES=$(echo "$PIP_RAW" | awk '{print $1}')
         PIP_COUNT=$(echo -n "$PIP_UPDATES" | grep -c '^' || true)
         if [ -z "$PIP_UPDATES" ]; then PIP_COUNT=0; fi
@@ -170,10 +170,10 @@ FW_COUNT=0
 if command -v fwupdmgr &> /dev/null; then
     # Refresh metadata quietly
     sudo fwupdmgr refresh --force > /dev/null 2>&1 || true
-    fwupdmgr get-updates > $AU_TMP/fw_updates.txt 2>/dev/null || true
-    if ! grep -qi "No updatable devices\|No updates available\|no available firmware updates" $AU_TMP/fw_updates.txt && [ -s $AU_TMP/fw_updates.txt ]; then
+    fwupdmgr get-updates > "$AU_TMP/fw_updates.txt" 2>/dev/null || true
+    if ! grep -qi "No updatable devices\|No updates available\|no available firmware updates" "$AU_TMP/fw_updates.txt" && [ -s "$AU_TMP/fw_updates.txt" ]; then
         FW_COUNT=1
-        FW_RAW=$(cat $AU_TMP/fw_updates.txt)
+        FW_RAW=$(cat "$AU_TMP/fw_updates.txt")
         FW_UPDATES="System-Firmware"
     fi
 fi

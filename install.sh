@@ -15,9 +15,12 @@ mkdir -p "$INSTALL_DIR"
 rm -f "$INSTALL_DIR/auto.updates"
 cp auto.updates "$INSTALL_DIR/"
 
-# Inject the current repository path so log files stay contained here
+# Inject the current repository path so log files stay contained here.
+# Escape sed metacharacters (&, |, \) so paths containing them don't corrupt
+# the substitution.
 REPO_DIR="$PWD"
-sed -i "s|<REPO_DIR_PLACEHOLDER>|$REPO_DIR|g" "$INSTALL_DIR/auto.updates"
+REPO_DIR_ESC=$(printf '%s' "$REPO_DIR" | sed -e 's/[&\\|]/\\&/g')
+sed -i "s|<REPO_DIR_PLACEHOLDER>|$REPO_DIR_ESC|g" "$INSTALL_DIR/auto.updates"
 
 chmod +x "$INSTALL_DIR/auto.updates"
 
