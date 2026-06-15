@@ -335,31 +335,31 @@ show_actions() {
 
 while true; do
     show_actions
-    read -p "Choice: " choice
+    read -r -p "Choice: " choice
 
     case $choice in
         1)
             echo -e "${CYAN}Installing all updates...${NC}"
-            if [ "$APT_COUNT" -gt 0 ]; then 
+            if [ "$APT_COUNT" -gt 0 ]; then
                 if sudo apt-get upgrade -y; then
-                for pkg in $APT_UPDATES; do log_update "APT" "$pkg" "$APT_RAW"; done
-            else
-                echo -e "${RED}⚠️ APT bulk upgrade encountered errors. Some updates may not be logged.${NC}"
+                    for pkg in $APT_UPDATES; do log_update "APT" "$pkg" "$APT_RAW"; done
+                else
+                    echo -e "${RED}⚠️ APT bulk upgrade encountered errors. Some updates may not be logged.${NC}"
+                fi
             fi
-            fi
-            if [ "$SNAP_COUNT" -gt 0 ]; then 
+            if [ "$SNAP_COUNT" -gt 0 ]; then
                 if sudo snap refresh; then
-                for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg" "$SNAP_RAW"; done
-            else
-                echo -e "${RED}⚠️ SNAP bulk upgrade encountered errors.${NC}"
+                    for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg" "$SNAP_RAW"; done
+                else
+                    echo -e "${RED}⚠️ SNAP bulk upgrade encountered errors.${NC}"
+                fi
             fi
-            fi
-            if [ "$FLATPAK_COUNT" -gt 0 ]; then 
+            if [ "$FLATPAK_COUNT" -gt 0 ]; then
                 if flatpak update -y; then
-                for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"; done
-            else
-                echo -e "${RED}⚠️ FLATPAK bulk upgrade encountered errors.${NC}"
-            fi
+                    for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"; done
+                else
+                    echo -e "${RED}⚠️ FLATPAK bulk upgrade encountered errors.${NC}"
+                fi
             fi
             if [ "$NPM_COUNT" -gt 0 ]; then
                 for pkg in $NPM_UPDATES; do 
@@ -377,10 +377,10 @@ while true; do
             fi
             if [ "$FW_COUNT" -gt 0 ]; then
                 if sudo fwupdmgr update -y; then
-                log_update "FIRMWARE" "System-Firmware" "$FW_RAW"
-            else
-                echo -e "${RED}⚠️ Firmware update encountered errors.${NC}"
-            fi
+                    log_update "FIRMWARE" "System-Firmware" "$FW_RAW"
+                else
+                    echo -e "${RED}⚠️ Firmware update encountered errors.${NC}"
+                fi
             fi
             echo -e "${GREEN}✅ All updates installed! Log updated at $LOG_FILE${NC}"
             exit 0
@@ -456,10 +456,10 @@ while true; do
             if echo "$SELECTED" | grep -qw "ALL_APT\|GROUP_APT"; then
                 echo -e "${CYAN}Bulk updating all APT packages...${NC}"
                 if sudo apt-get upgrade -y; then
-                for pkg in $APT_UPDATES; do log_update "APT" "$pkg" "$APT_RAW"; done
-            else
-                echo -e "${RED}⚠️ APT bulk upgrade encountered errors. Some updates may not be logged.${NC}"
-            fi
+                    for pkg in $APT_UPDATES; do log_update "APT" "$pkg" "$APT_RAW"; done
+                else
+                    echo -e "${RED}⚠️ APT bulk upgrade encountered errors. Some updates may not be logged.${NC}"
+                fi
             else
                 for sel in $SELECTED; do
                     case "$sel" in
@@ -479,10 +479,10 @@ while true; do
             if echo "$SELECTED" | grep -qw "ALL_SNAP\|GROUP_SNAP"; then
                 echo -e "${CYAN}Bulk updating all SNAP packages...${NC}"
                 if sudo snap refresh; then
-                for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg" "$SNAP_RAW"; done
-            else
-                echo -e "${RED}⚠️ SNAP bulk upgrade encountered errors.${NC}"
-            fi
+                    for pkg in $SNAP_UPDATES; do log_update "SNAP" "$pkg" "$SNAP_RAW"; done
+                else
+                    echo -e "${RED}⚠️ SNAP bulk upgrade encountered errors.${NC}"
+                fi
             else
                 for sel in $SELECTED; do
                     case "$sel" in
@@ -502,10 +502,10 @@ while true; do
             if echo "$SELECTED" | grep -qw "ALL_FLATPAK\|GROUP_FLATPAK"; then
                 echo -e "${CYAN}Bulk updating all FLATPAK packages...${NC}"
                 if flatpak update -y; then
-                for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"; done
-            else
-                echo -e "${RED}⚠️ FLATPAK bulk upgrade encountered errors.${NC}"
-            fi
+                    for pkg in $FLATPAK_UPDATES; do log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"; done
+                else
+                    echo -e "${RED}⚠️ FLATPAK bulk upgrade encountered errors.${NC}"
+                fi
             else
                 for sel in $SELECTED; do
                     case "$sel" in
@@ -567,10 +567,10 @@ while true; do
             if echo "$SELECTED" | grep -qw "ALL_FIRMWARE\|GROUP_FIRMWARE\|firmware:System-Firmware"; then
                 echo -e "${CYAN}Updating firmware...${NC}"
                 if sudo fwupdmgr update -y; then
-                log_update "FIRMWARE" "System-Firmware" "$FW_RAW"
-            else
-                echo -e "${RED}⚠️ Firmware update encountered errors.${NC}"
-            fi
+                    log_update "FIRMWARE" "System-Firmware" "$FW_RAW"
+                else
+                    echo -e "${RED}⚠️ Firmware update encountered errors.${NC}"
+                fi
             fi
             
             echo -e "${GREEN}✅ Selected updates completed! Log updated at $LOG_FILE${NC}"
