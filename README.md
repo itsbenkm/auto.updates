@@ -35,5 +35,6 @@ To cleanly remove the script:
 ## Changelog
 
 **Latest Updates:**
+- **Fixed cross-manager upgrades in manual selection:** In the "Select manually via UI (whiptail)" menu, each per-package entry is now tagged with its manager prefix (`apt:`, `snap:`, `flatpak:`, `npm:`, `pip:`, `firmware:`) and routed to exactly one manager on selection. Previously a package name that existed in two managers (e.g. a tool present in both npm and pip) was upgraded in **both** when selected once.
 - **Smarter Update History:** Refactored the `update_history.log` file formatting to logically group updates by day without repeating the date header. The log now also pulls the AI-generated explanations from the cache, matching the output shown in the interactive UI.
 - **Strict Error Handling:** The installation sequence captures the exit status of package managers. Failed **individual** installations (e.g. an unsupported Node.js engine during an NPM update) print a warning and are skipped in the update-history log. Note: bulk operations (`apt-get upgrade`, `snap refresh`, etc.) are logged per package when the bulk command succeeds, so a partial failure within a bulk run may still be logged optimistically.

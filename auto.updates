@@ -407,32 +407,32 @@ while true; do
             # 2. Individual Categories
             if [ "$APT_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_APT" "[Bulk] Update all $APT_COUNT APT packages" OFF)
-                for app in $APT_UPDATES; do CHECKLIST+=("$app" "apt" OFF); done
+                for app in $APT_UPDATES; do CHECKLIST+=("apt:$app" "apt" OFF); done
                 CHECKLIST+=("-------------------" "--------------------------------------" OFF)
             fi
             if [ "$SNAP_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_SNAP" "[Bulk] Update all $SNAP_COUNT SNAP packages" OFF)
-                for app in $SNAP_UPDATES; do CHECKLIST+=("$app" "snap" OFF); done
+                for app in $SNAP_UPDATES; do CHECKLIST+=("snap:$app" "snap" OFF); done
                 CHECKLIST+=("--------------------" "--------------------------------------" OFF)
             fi
             if [ "$FLATPAK_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_FLATPAK" "[Bulk] Update all $FLATPAK_COUNT FLATPAK packages" OFF)
-                for app in $FLATPAK_UPDATES; do CHECKLIST+=("$app" "flatpak" OFF); done
+                for app in $FLATPAK_UPDATES; do CHECKLIST+=("flatpak:$app" "flatpak" OFF); done
                 CHECKLIST+=("---------------------" "--------------------------------------" OFF)
             fi
             if [ "$NPM_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_NPM" "[Bulk] Update all $NPM_COUNT NPM packages" OFF)
-                for app in $NPM_UPDATES; do CHECKLIST+=("$app" "npm" OFF); done
+                for app in $NPM_UPDATES; do CHECKLIST+=("npm:$app" "npm" OFF); done
                 CHECKLIST+=("----------------------" "--------------------------------------" OFF)
             fi
             if [ "$PIP_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_PIP" "[Bulk] Update all $PIP_COUNT PIP packages" OFF)
-                for app in $PIP_UPDATES; do CHECKLIST+=("$app" "pip" OFF); done
+                for app in $PIP_UPDATES; do CHECKLIST+=("pip:$app" "pip" OFF); done
                 CHECKLIST+=("-----------------------" "--------------------------------------" OFF)
             fi
             if [ "$FW_COUNT" -gt 0 ]; then
                 CHECKLIST+=("GROUP_FIRMWARE" "[Bulk] Update all firmware" OFF)
-                for app in $FW_UPDATES; do CHECKLIST+=("$app" "firmware" OFF); done
+                for app in $FW_UPDATES; do CHECKLIST+=("firmware:$app" "firmware" OFF); done
                 CHECKLIST+=("------------------------" "--------------------------------------" OFF)
             fi
 
@@ -461,14 +461,16 @@ while true; do
                 echo -e "${RED}⚠️ APT bulk upgrade encountered errors. Some updates may not be logged.${NC}"
             fi
             else
-                for pkg in $SELECTED; do
-                    if echo "$APT_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
-                        echo -e "${CYAN}Updating $pkg...${NC}"
-                        if sudo apt-get install --only-upgrade -y "$pkg"; then
+                for sel in $SELECTED; do
+                    case "$sel" in
+                        apt:*) pkg=${sel#apt:} ;;
+                        *) continue ;;
+                    esac
+                    echo -e "${CYAN}Updating $pkg...${NC}"
+                    if sudo apt-get install --only-upgrade -y "$pkg"; then
                         log_update "APT" "$pkg" "$APT_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update APT package: $pkg${NC}"
-                    fi
                     fi
                 done
             fi
@@ -482,14 +484,16 @@ while true; do
                 echo -e "${RED}⚠️ SNAP bulk upgrade encountered errors.${NC}"
             fi
             else
-                for pkg in $SELECTED; do
-                    if echo "$SNAP_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
-                        echo -e "${CYAN}Updating $pkg...${NC}"
-                        if sudo snap refresh "$pkg"; then
+                for sel in $SELECTED; do
+                    case "$sel" in
+                        snap:*) pkg=${sel#snap:} ;;
+                        *) continue ;;
+                    esac
+                    echo -e "${CYAN}Updating $pkg...${NC}"
+                    if sudo snap refresh "$pkg"; then
                         log_update "SNAP" "$pkg" "$SNAP_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update SNAP package: $pkg${NC}"
-                    fi
                     fi
                 done
             fi
@@ -503,14 +507,16 @@ while true; do
                 echo -e "${RED}⚠️ FLATPAK bulk upgrade encountered errors.${NC}"
             fi
             else
-                for pkg in $SELECTED; do
-                    if echo "$FLATPAK_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
-                        echo -e "${CYAN}Updating $pkg...${NC}"
-                        if flatpak update -y "$pkg"; then
+                for sel in $SELECTED; do
+                    case "$sel" in
+                        flatpak:*) pkg=${sel#flatpak:} ;;
+                        *) continue ;;
+                    esac
+                    echo -e "${CYAN}Updating $pkg...${NC}"
+                    if flatpak update -y "$pkg"; then
                         log_update "FLATPAK" "$pkg" "$FLATPAK_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update Flatpak: $pkg${NC}"
-                    fi
                     fi
                 done
             fi
@@ -526,14 +532,16 @@ while true; do
                     fi
                 done
             else
-                for pkg in $SELECTED; do
-                    if echo "$NPM_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
-                        echo -e "${CYAN}Updating $pkg...${NC}"
-                        if $NPM_SUDO npm -g install "$pkg"@latest; then
+                for sel in $SELECTED; do
+                    case "$sel" in
+                        npm:*) pkg=${sel#npm:} ;;
+                        *) continue ;;
+                    esac
+                    echo -e "${CYAN}Updating $pkg...${NC}"
+                    if $NPM_SUDO npm -g install "$pkg"@latest; then
                         log_update "NPM" "$pkg" "$NPM_RAW"
                     else
                         echo -e "${RED}⚠️ Failed to update NPM package: $pkg${NC}"
-                    fi
                     fi
                 done
             fi
@@ -545,16 +553,18 @@ while true; do
                     pip_upgrade "$pkg"
                 done
             else
-                for pkg in $SELECTED; do
-                    if echo "$PIP_UPDATES" | grep -qwF -- "$pkg" && ! echo "$pkg" | grep -q -- "ALL_\|GROUP_\|----"; then
-                        echo -e "${CYAN}Updating $pkg...${NC}"
-                        pip_upgrade "$pkg"
-                    fi
+                for sel in $SELECTED; do
+                    case "$sel" in
+                        pip:*) pkg=${sel#pip:} ;;
+                        *) continue ;;
+                    esac
+                    echo -e "${CYAN}Updating $pkg...${NC}"
+                    pip_upgrade "$pkg"
                 done
             fi
 
             # Check FIRMWARE
-            if echo "$SELECTED" | grep -qw "ALL_FIRMWARE\|GROUP_FIRMWARE\|System-Firmware"; then
+            if echo "$SELECTED" | grep -qw "ALL_FIRMWARE\|GROUP_FIRMWARE\|firmware:System-Firmware"; then
                 echo -e "${CYAN}Updating firmware...${NC}"
                 if sudo fwupdmgr update -y; then
                 log_update "FIRMWARE" "System-Firmware" "$FW_RAW"
